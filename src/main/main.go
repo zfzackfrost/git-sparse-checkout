@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
+	"sync"
 
 	"github.com/zfzackfrost/git-sparse-checkout/src/cli"
 )
@@ -25,8 +27,7 @@ func main() {
 	handle_error(err, "Could not cd to directory: %s", args.LocalDir)
 
 	run_git_command(gitPath, "init")
-	run_git_command(gitPath, "remote", "add", "-f", "origin", args.Repo)
-	run_git_command(gitPath, "config", "core.sparseCheckout", "true")
+	run_git_command(gitPath, "remote", "add", "-f", "origin", args.Url)
 	run_git_command(gitPath, "config", "core.sparseCheckout", "true")
 
 	write_sparse_paths(args.Paths)
@@ -45,7 +46,25 @@ func write_sparse_paths(paths []string) {
 }
 func run_git_command(gitPath string, args ...string) {
 	cmd := exec.Command(gitPath, args...)
+
+	var wg sync.WaitGroup
+	if stdout, err := cmd.StdoutPipe(); err == nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			io.Copy(os.Stdout, stdout)
+		}()
+	}
+	if stderr, err := cmd.StderrPipe(); err == nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			io.Copy(os.Stderr, stderr)
+		}()
+	}
+
 	cmd.Run()
+	wg.Wait()
 }
 func handle_error(err error, pattern string, args ...any) {
 	if err != nil {
